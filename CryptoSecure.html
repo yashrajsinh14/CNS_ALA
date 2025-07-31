@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CryptoSecure Messenger</title>
+<style>
+    body {
+        font-family: "Segoe UI", sans-serif;
+        background: linear-gradient(135deg, #141E30, #243B55);
+        color: #fff;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 100vh;
+    }
+    h1 {
+        margin-top: 20px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        color: #fff;
+    }
+    .app-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin: 30px;
+        width: 95%;
+        max-width: 1100px;
+        justify-content: center;
+    }
+    .card {
+        background: #1f2937;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        width: 100%;
+        max-width: 500px;
+        transition: transform 0.2s ease-in-out;
+    }
+    .card:hover {
+        transform: translateY(-3px);
+    }
+    .card h3 {
+        margin-top: 0;
+        color: #4fc3f7;
+    }
+    textarea, input {
+        width: 100%;
+        padding: 12px;
+        margin: 8px 0 14px;
+        border: none;
+        border-radius: 8px;
+        outline: none;
+        font-size: 14px;
+        background: #374151;
+        color: #fff;
+        resize: none;
+    }
+    textarea::placeholder, input::placeholder {
+        color: #bbb;
+    }
+    button {
+        background: #4fc3f7;
+        color: #fff;
+        padding: 12px 20px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 15px;
+        font-weight: bold;
+        transition: background 0.3s ease-in-out;
+    }
+    button:hover {
+        background: #039be5;
+    }
+    .output {
+        background: #111827;
+        padding: 10px;
+        border-radius: 6px;
+        font-size: 14px;
+        word-wrap: break-word;
+        margin-top: 8px;
+        border-left: 4px solid #4fc3f7;
+    }
+    .label {
+        font-weight: bold;
+        color: #ddd;
+        margin-top: 10px;
+        display: block;
+    }
+</style>
+</head>
+<body>
+
+<h1>🔐 CryptoSecure Messenger</h1>
+<div class="app-container">
+    <!-- Encryption Section -->
+    <div class="card">
+        <h3>Step 1: Encrypt Message</h3>
+        <textarea id="message" placeholder="Type your secret message..."></textarea>
+        <button onclick="encryptMessage()">🔒 Encrypt Message</button>
+        <span class="label">Encrypted Message:</span>
+        <div class="output" id="encryptedMsg"></div>
+        <span class="label">Encrypted AES Key:</span>
+        <div class="output" id="encryptedKey"></div>
+    </div>
+
+    <!-- Decryption Section -->
+    <div class="card">
+        <h3>Step 2: Decrypt Message</h3>
+        <input id="inputKey" placeholder="Paste Encrypted AES Key">
+        <textarea id="inputMsg" placeholder="Paste Encrypted Message"></textarea>
+        <button onclick="decryptMessage()">🔓 Decrypt Message</button>
+        <span class="label">Decrypted Message:</span>
+        <div class="output" id="decryptedMsg"></div>
+    </div>
+</div>
+
+<script>
+let publicKey, privateKey;
+
+// Generate RSA key pair on page load
+window.onload = async () => {
+    const keyPair = await crypto.subtle.generateKey(
+        { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+        true,
+        ["encrypt", "decrypt"]
+    );
+    publicKey = keyPair.publicKey;
+    privateKey = keyPair.privateKey;
+};
+
+// Convert ArrayBuffer to Base64
+function ab2b64(buffer) {
+    return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+}
+// Convert Base64 to ArrayBuffer
+function b64toab(base64) {
+    return Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer;
+}
+
+async function encryptMessage() {
+    const msg = document.getElementById("message").value.trim();
+    if (!msg) { alert("Please enter a message."); return; }
+
+    // Generate AES key
+    const aesKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+
+    // Encrypt message with AES
+    const encodedMsg = new TextEncoder().encode(msg);
+    const cipherText = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, encodedMsg);
+
+    // Export and encrypt AES key with RSA
+    const rawKey = await crypto.subtle.exportKey("raw", aesKey);
+    const encryptedKey = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawKey);
+
+    // Display outputs
+    document.getElementById("encryptedMsg").textContent = ab2b64(iv) + "." + ab2b64(cipherText);
+    document.getElementById("encryptedKey").textContent = ab2b64(encryptedKey);
+}
+
+async function decryptMessage() {
+    try {
+        const encryptedKey = document.getElementById("inputKey").value.trim();
+        const encryptedMsg = document.getElementById("inputMsg").value.trim();
+        if (!encryptedKey || !encryptedMsg) { alert("Please paste both encrypted key and message."); return; }
+
+        // Decrypt AES key
+        const rawKey = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateKey, b64toab(encryptedKey));
+        const aesKey = await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, true, ["decrypt"]);
+
+        // Separate IV and ciphertext
+        const [ivB64, cipherB64] = encryptedMsg.split(".");
+        const iv = new Uint8Array(b64toab(ivB64));
+        const cipherText = b64toab(cipherB64);
+
+        // Decrypt message
+        const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, cipherText);
+        const message = new TextDecoder().decode(decrypted);
+
+        document.getElementById("decryptedMsg").textContent = message;
+    } catch (e) {
+        document.getElementById("decryptedMsg").textContent = "❌ Decryption failed! Invalid data.";
+    }
+}
+</script>
+
+</body>
+</html>
